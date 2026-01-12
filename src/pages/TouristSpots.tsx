@@ -4,19 +4,20 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTrip } from "@/contexts/TripContext";
 import { queryOverpass } from "@/services/overpass";
+import type { OverpassElement } from "@/services/overpass";
+
 import { PlaceCard } from "@/components/PlaceCard";
 import { TripGuard } from "@/components/TripGuard";
+import { PageHeader } from "@/components/PageHeader";
+
 import SearchControls from "@/components/SearchControls";
+import SearchStatusBar from "@/components/SearchStatusBar";
 import { NeonCard } from "@/components/ui/NeonCard";
 import { ErrorState, EmptyState } from "@/components/ui/States";
-
 import { PlaceSkeleton } from "@/components/ui/Skeletons";
 
-
-import SearchStatusBar from "@/components/SearchStatusBar";
 import TripDebug from "@/components/TripDebug";
 import { ExternalLink } from "lucide-react";
-import type { OverpassElement } from "@/services/overpass";
 
 // ============================================================================
 // AFSNIT 02 – Typer + helpers
@@ -66,8 +67,13 @@ function getTripCountryCode(trip: any): string | null {
   );
 }
 
+function roundCoord(n: number, decimals = 3) {
+  const p = Math.pow(10, decimals);
+  return Math.round(n * p) / p;
+}
+
 // ============================================================================
-// AFSNIT 03 – Overpass query builder
+// AFSNIT 03 – Overpass query builder (LET version for færre 504)
 // ============================================================================
 function buildTouristQuery(
   lat: number,
@@ -76,47 +82,29 @@ function buildTouristQuery(
   scope: Scope,
   countryCode?: string | null
 ) {
-  // NOTE:
-  // nearby: bare radius rundt om lat/lon
-  // dk: radius + landekode DK (admin/country filter)
-  // country: radius + landekode for destination
   const useCountryCode =
     scope === "dk" ? "dk" : scope === "country" ? countryCode ?? null : null;
 
-  // simple filter: vi bruger kun country filter hvis vi har en kode
   const countryFilter =
     useCountryCode && useCountryCode.length === 2
       ? `area["ISO3166-1"="${useCountryCode.toUpperCase()}"]->.countryArea;`
       : "";
 
   const around = `around:${radiusM},${lat},${lon}`;
-
-  // Vi søger på en håndfuld nyttige tags (tourism + historic + museum + viewpoint etc.)
-  // og sorterer/limiter senere i UI.
-  // Hvis countryArea findes, indsnævrer vi med (area.countryArea)
   const areaPart = countryFilter ? `(area.countryArea)` : "";
 
+  // ✅ VIGTIGT: Brug "nwr" i stedet for node+way+relation tre gange (mindre load)
+  // ✅ Begræns output (fx 120 elementer) for at undgå kæmpe svar/timeout
   return `
     [out:json][timeout:25];
     ${countryFilter}
     (
-      node${areaPart}[tourism](${around});
-      way${areaPart}[tourism](${around});
-      relation${areaPart}[tourism](${around});
-
-      node${areaPart}[historic](${around});
-      way${areaPart}[historic](${around});
-      relation${areaPart}[historic](${around});
-
-      node${areaPart}[museum](${around});
-      way${areaPart}[museum](${around});
-      relation${areaPart}[museum](${around});
-
-      node${areaPart}[viewpoint](${around});
-      way${areaPart}[viewpoint](${around});
-      relation${areaPart}[viewpoint](${around});
+      nwr${areaPart}[tourism](${around});
+      nwr${areaPart}[historic](${around});
+      nwr${areaPart}[museum](${around});
+      nwr${areaPart}[viewpoint](${around});
     );
-    out center tags;
+    out center tags 120;
   `;
 }
 
@@ -137,12 +125,9 @@ function TouristSpotsContent() {
 
   const hasLocation = !!trip?.location?.lat && !!trip?.location?.lon;
 
-  // radiusM afhænger af scope:
-  // nearby = base
-  // dk/country = base (vi filtrerer land via Overpass area)
   const radiusM = useMemo(() => Math.round(baseRadiusKm * 1000), [baseRadiusKm]);
 
-  // Auto-fallback: hvis scope=dk men destinationland != DK -> nearby (som du ønskede)
+  // Auto-fallback: hvis scope=dk men destinationland != DK -> nearby
   useEffect(() => {
     const cc = getTripCountryCode(trip);
     if (scope === "dk" && cc && cc.toLowerCase() !== "dk") {
@@ -176,24 +161,24 @@ function TouristSpotsContent() {
       try {
         const lat = trip.location.lat;
         const lon = trip.location.lon;
-
         const countryCode = getTripCountryCode(trip);
 
         const query = buildTouristQuery(lat, lon, radiusM, scope, countryCode);
 
+        // ✅ CacheKey skal afhænge af destination (lat/lon), ellers kan man få “forkerte gamle” data
+        const keyLat = roundCoord(lat);
+        const keyLon = roundCoord(lon);
+
         const data = await queryOverpass(query, {
-          cacheKey: `tourist-spots-${scope}-${baseRadiusKm}km`,
+          cacheKey: `tourist-spots-${scope}-${baseRadiusKm}km-${keyLat},${keyLon}-${countryCode ?? "xx"}`,
           forceRefresh,
         });
 
         const elements = data?.elements ?? [];
         setSpots(elements);
 
-        if (elements.length > 0) {
-          setStatus("ok");
-        } else {
-          setStatus("empty");
-        }
+        if (elements.length > 0) setStatus("ok");
+        else setStatus("empty");
       } catch (e: any) {
         setError(e?.message || "Der skete en fejl ved søgning.");
         setStatus("error");
@@ -206,9 +191,7 @@ function TouristSpotsContent() {
 
   // initial fetch
   useEffect(() => {
-    if (hasLocation) {
-      fetchSpots();
-    }
+    if (hasLocation) fetchSpots();
   }, [hasLocation, fetchSpots]);
 
   // ========================================================================
@@ -217,48 +200,50 @@ function TouristSpotsContent() {
   if (!hasLocation) {
     return (
       <div className="min-h-screen flex flex-col px-4 py-2 max-w-lg mx-auto animate-fade-in">
+        {/* ✅ Retur + Mode kommer her */}
+        <PageHeader title="Seværdigheder" subtitle="Populære turistattraktioner" />
+
         <main className="flex-1 space-y-4 pb-6">
-          <p>Vælg en destination for at finde hjælp.</p>
+          <p>Vælg en destination (eller brug GPS) for at finde seværdigheder.</p>
         </main>
+
+        <TripDebug />
       </div>
     );
   }
 
   return (
     <div className="min-h-screen flex flex-col px-4 py-2 max-w-lg mx-auto animate-fade-in">
+      {/* ✅ FIX: Retur + Mode knapper (PageHeader) */}
+      <PageHeader title="Seværdigheder" subtitle="Populære turistattraktioner" />
+
       <main className="flex-1 space-y-6 pb-6">
         {/* ------------------------------------------------------------
            AFSNIT 05A – Intro + Controls
         ------------------------------------------------------------ */}
         <NeonCard>
-          <div className="flex items-start justify-between gap-3">
-            <div className="space-y-1">
-              <h1 className="text-lg font-semibold leading-tight">Seværdigheder</h1>
-              <p className="text-sm text-muted-foreground">
-                Populære turistattraktioner
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                Søger inden for {baseRadiusKm} km fra centrum.
-              </p>
+          <div className="space-y-1">
+            <p className="text-sm text-muted-foreground">Populære turistattraktioner</p>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Søger inden for {baseRadiusKm} km fra centrum.
+            </p>
 
-              {/* ✅ Fælles kontrol: radius + scope (country-aware + fallback) */}
-              <div className="mt-3">
-                <SearchControls
-                  showRadius={true}
-                  showScope={true}
-                  radiusKm={baseRadiusKm}
-                  scope={scope}
-                  onRadiusChange={(km) => {
-                    setBaseRadiusKm(km);
-                    setTimeout(() => fetchSpots({ forceRefresh: true }), 0);
-                  }}
-                  onScopeChange={(next) => {
-                    setScope(next);
-                    writeScope(next); // skriver også legacy nv_spots_scope
-                    setTimeout(() => fetchSpots({ forceRefresh: true }), 0);
-                  }}
-                />
-              </div>
+            <div className="mt-3">
+              <SearchControls
+                showRadius={true}
+                showScope={true}
+                radiusKm={baseRadiusKm}
+                scope={scope}
+                onRadiusChange={(km) => {
+                  setBaseRadiusKm(km);
+                  setTimeout(() => fetchSpots({ forceRefresh: true }), 0);
+                }}
+                onScopeChange={(next) => {
+                  setScope(next);
+                  writeScope(next);
+                  setTimeout(() => fetchSpots({ forceRefresh: true }), 0);
+                }}
+              />
             </div>
           </div>
         </NeonCard>
@@ -332,9 +317,6 @@ function TouristSpotsContent() {
         </NeonCard>
       </main>
 
-      {/* ------------------------------------------------------------
-         AFSNIT 05H – Debug (kan senere fjernes i production)
-      ------------------------------------------------------------ */}
       <TripDebug />
     </div>
   );
