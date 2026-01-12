@@ -1,13 +1,27 @@
+/* =========================================================
+   AFSNIT 01 – Imports (UI / Providers)
+   ========================================================= */
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Routes, Route } from "react-router-dom";
-import { ThemeProvider } from "@/context/ThemeContext";
-import { TripProvider } from "@/context/TripContext";
 
+/* =========================================================
+   AFSNIT 02 – Imports (Contexts)
+   VIGTIGT: mappen hedder nu "contexts" (med s)
+   ========================================================= */
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import { TripProvider } from "@/contexts/TripContext";
+
+/* =========================================================
+   AFSNIT 03 – Imports (Global components)
+   ========================================================= */
 import GlobalLoadingIndicator from "@/components/GlobalLoadingIndicator";
 
+/* =========================================================
+   AFSNIT 04 – Imports (Pages)
+   ========================================================= */
 import Index from "./pages/Index";
 import Menu from "./pages/Menu";
 import Weather from "./pages/Weather";
@@ -21,8 +35,14 @@ import Help from "./pages/Help";
 import Install from "./pages/Install";
 import NotFound from "./pages/NotFound";
 
+/* =========================================================
+   AFSNIT 05 – React Query Client
+   ========================================================= */
 const queryClient = new QueryClient();
 
+/* =========================================================
+   AFSNIT 06 – App Component + Routes
+   ========================================================= */
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
