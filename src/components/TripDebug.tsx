@@ -6,13 +6,11 @@ import { useTrip } from "@/contexts/TripContext";
 import { MapPin, Check, X } from "lucide-react";
 
 // ============================================================================
-// AFSNIT 02 – Component
+// AFSNIT 02 – Component (shared)
 // ============================================================================
-export default function TripDebug() {
-  // Only show in development/preview
-  if (import.meta.env.PROD) {
-    return null;
-  }
+function TripDebugInner() {
+  // Vis ikke debug i production build
+  if (import.meta.env.PROD) return null;
 
   const { trip } = useTrip();
 
@@ -40,4 +38,17 @@ export default function TripDebug() {
       </div>
     </div>
   );
+}
+
+// ============================================================================
+// AFSNIT 03 – Exports (vigtigt)
+// 1) Named export: bruges af Menu.tsx  -> import { TripDebug } ...
+// 2) Default export: bruges af TouristSpots.tsx -> import TripDebug ...
+// ============================================================================
+export function TripDebug() {
+  return <TripDebugInner />;
+}
+
+export default function TripDebugDefault() {
+  return <TripDebugInner />;
 }
