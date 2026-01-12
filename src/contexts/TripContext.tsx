@@ -8,56 +8,74 @@ import { readTrip, writeTrip } from "@/services/tripStore";
 // AFSNIT 02 – Types
 // =====================================================
 export type TripLocation = {
-  label?: string;        // fx "Paris, France"
+  id?: string;
+  name?: string;
+  displayName?: string;
+
   lat: number;
   lon: number;
-  countryCode?: string;  // fx "FR"
-};
 
-export type TripState = {
-  // Destination/GPS
-  location?: TripLocation | null;
+  country?: string;
+  countryCode?: string;
+  type?: string;
 
-  // Datoer
-  startDate?: Date | null;
-  endDate?: Date | null;
-
-  // Tillad ekstra felter uden at alt går i stykker
+  // Tillad ekstra felter uden at alt går i stykker (fx fra geocoding)
   [key: string]: any;
 };
 
-// Patch-type: vi opdaterer kun enkelte felter ad gangen
+export type TripState = {
+  destination?: string;
+
+  location?: TripLocation;
+
+  startDate?: Date;
+  endDate?: Date;
+
+  days?: number;
+
+  countryName?: string;
+  countryCode?: string;
+
+  [key: string]: any;
+};
+
 type TripPatch = Partial<TripState>;
 
-// =====================================================
-// AFSNIT 03 – Context shape
-// =====================================================
 type TripContextValue = {
   trip: TripState;
 
-  // VIGTIGT: merge/patch i stedet for at overskrive hele trip
+  // VIGTIGT: merge/patch (så dato/GPS ikke overskriver hinanden)
   setTrip: (patch: TripPatch) => void;
 
+  // Bruges i UI/guards
   hasLocation: boolean;
+  isValid: boolean;
 };
 
+// =====================================================
+// AFSNIT 03 – Context
+// =====================================================
 const TripContext = createContext<TripContextValue | null>(null);
 
 // =====================================================
-// AFSNIT 04 – Helpers (Date revive)
+// AFSNIT 04 – Helpers (revive Dates)
 // =====================================================
 function reviveTrip(raw: any): TripState {
   if (!raw || typeof raw !== "object") return {};
 
   const t: TripState = { ...raw };
 
-  // Når vi gemmer i storage, bliver Date typisk til string
+  // JSON gør Date til string → genskab Date
   if (typeof t.startDate === "string") t.startDate = new Date(t.startDate);
   if (typeof t.endDate === "string") t.endDate = new Date(t.endDate);
 
-  // Hvis nogen har gemt timestamps
+  // Hvis timestamps
   if (typeof t.startDate === "number") t.startDate = new Date(t.startDate);
   if (typeof t.endDate === "number") t.endDate = new Date(t.endDate);
+
+  // Hvis nogen har gemt null, så ryd til undefined (DateRangePicker har det bedre sådan)
+  if (t.startDate === null) delete (t as any).startDate;
+  if (t.endDate === null) delete (t as any).endDate;
 
   return t;
 }
@@ -68,27 +86,32 @@ function reviveTrip(raw: any): TripState {
 export function TripProvider({ children }: { children: React.ReactNode }) {
   const [trip, setTripState] = useState<TripState>(() => reviveTrip(readTrip?.()));
 
-  // MERGE/PATCH setter – det er hele fixet for “dato sletter dato”
+  // MERGE/PATCH setter
   const setTrip = (patch: TripPatch) => {
     setTripState((prev) => ({ ...prev, ...patch }));
   };
 
-  // Persist
+  // Persist (localStorage)
   useEffect(() => {
     try {
       writeTrip?.(trip);
     } catch {
-      // ingen crash hvis storage fejler
+      // no-op
     }
   }, [trip]);
 
   const value = useMemo<TripContextValue>(() => {
-    const hasLocation =
-      !!trip?.location &&
-      typeof trip.location.lat === "number" &&
-      typeof trip.location.lon === "number";
+    const lat = trip?.location?.lat;
+    const lon = trip?.location?.lon;
 
-    return { trip, setTrip, hasLocation };
+    const hasLocation = typeof lat === "number" && typeof lon === "number";
+    const hasDates = trip?.startDate instanceof Date && trip?.endDate instanceof Date;
+    const hasDestination = !!trip?.destination && trip.destination.trim().length > 0;
+
+    // “Klar til at fortsætte”
+    const isValid = hasDestination && hasLocation && hasDates;
+
+    return { trip, setTrip, hasLocation, isValid };
   }, [trip]);
 
   return <TripContext.Provider value={value}>{children}</TripContext.Provider>;
