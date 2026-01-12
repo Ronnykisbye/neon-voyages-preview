@@ -69,6 +69,25 @@ export async function queryOverpass(
     if (opts?.signal) opts.signal.removeEventListener("abort", onAbort);
   }
 }
+// =====================================================
+// AFSNIT 03 – Cache helpers (bruges af HiddenGems m.fl.)
+// =====================================================
+
+/** Giver et stabilt cache-key ud fra en tekststreng */
+export function getCacheKey(input: string): string {
+  // Holder det simpelt og stabilt: trim + normaliser whitespace
+  return input.trim().replace(/\s+/g, " ");
+}
+
+/** Henter fra in-memory cache (session) */
+export function getFromCache(key: string): OverpassResponse | undefined {
+  return memCache.get(key);
+}
+
+/** Sætter in-memory cache (session) */
+export function setCache(key: string, value: OverpassResponse): void {
+  memCache.set(key, value);
+}
 
 // =====================================================
 // AFSNIT 04 – Tiny helpers (valgfrit, men nyttigt)
