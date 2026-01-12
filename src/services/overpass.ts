@@ -34,7 +34,6 @@ const OVERPASS_ENDPOINTS = [
 ] as const;
 
 // Enkel, robust cache (session)
-// NOTE: vi kan senere flytte til rigtig cache, men det her er “safe”
 const memCache = new Map<string, OverpassResponse>();
 
 function sleep(ms: number) {
@@ -48,7 +47,6 @@ function shortText(txt: string, max = 600) {
 }
 
 function isRetryableStatus(status: number) {
-  // 429 = rate limit, 5xx = serverfejl/timeout hos Overpass
   return status === 429 || (status >= 500 && status <= 599);
 }
 
@@ -62,25 +60,21 @@ export async function queryOverpass(
     return memCache.get(cacheKey)!;
   }
 
-  // Respekter evt. abort udefra
   const outerController = new AbortController();
   const outerSignal = opts?.signal ?? outerController.signal;
 
-  // Hvis nogen sender abort ind, så abort alt
   const onAbort = () => outerController.abort();
   if (opts?.signal) opts.signal.addEventListener("abort", onAbort);
 
-  // Retry-strategi (kort og “safe”)
-  const MAX_ATTEMPTS_PER_ENDPOINT = 2; // 2 forsøg pr endpoint
-  const TIMEOUT_MS = 25000; // 25 sek pr forsøg
-  const BASE_BACKOFF_MS = 600; // lille pause før retry
+  const MAX_ATTEMPTS_PER_ENDPOINT = 2;
+  const TIMEOUT_MS = 25000;
+  const BASE_BACKOFF_MS = 600;
 
   try {
     let lastError: unknown = null;
 
     for (const endpoint of OVERPASS_ENDPOINTS) {
       for (let attempt = 1; attempt <= MAX_ATTEMPTS_PER_ENDPOINT; attempt++) {
-        // Timeout-controller pr forsøg (men koblet til outer abort)
         const attemptController = new AbortController();
         const timeoutId = setTimeout(() => attemptController.abort(), TIMEOUT_MS);
 
@@ -103,7 +97,6 @@ export async function queryOverpass(
               txt ? ` – ${shortText(txt)}` : ""
             } (endpoint: ${endpoint}, forsøg: ${attempt}/${MAX_ATTEMPTS_PER_ENDPOINT})`;
 
-            // Kun retry på “typiske” Overpass-problemer
             if (isRetryableStatus(res.status)) {
               lastError = new Error(msg);
               await sleep(BASE_BACKOFF_MS * attempt);
@@ -117,9 +110,7 @@ export async function queryOverpass(
           memCache.set(cacheKey, data);
           return data;
         } catch (err) {
-          // Abort/timeout: prøv igen eller næste endpoint
-          const isAbort =
-            err instanceof DOMException && err.name === "AbortError";
+          const isAbort = err instanceof DOMException && err.name === "AbortError";
 
           if (isAbort) {
             lastError = new Error(
@@ -130,8 +121,6 @@ export async function queryOverpass(
           }
 
           lastError = err;
-
-          // Ved “netværk” eller andet ukendt: prøv igen (én gang) og så næste endpoint
           await sleep(BASE_BACKOFF_MS * attempt);
           continue;
         } finally {
@@ -141,7 +130,6 @@ export async function queryOverpass(
       }
     }
 
-    // Hvis vi når hertil, fejlede alle endpoints
     throw lastError instanceof Error
       ? lastError
       : new Error("Overpass fejl: alle endpoints fejlede.");
@@ -154,10 +142,25 @@ export async function queryOverpass(
 // AFSNIT 03 – Cache helpers (bruges af HiddenGems m.fl.)
 // =====================================================
 
-/** Giver et stabilt cache-key ud fra en tekststreng */
-export function getCacheKey(input: string): string {
-  // Holder det simpelt og stabilt: trim + normaliser whitespace
-  return input.trim().replace(/\s+/g, " ");
+/** Giver et stabilt cache-key ud fra “hvad som helst” (string, objekt, tal osv.) */
+export function getCacheKey(input: unknown): string {
+  // 1) Gør input til tekst på en sikker måde
+  let s: string;
+
+  if (typeof input === "string") {
+    s = input;
+  } else {
+    // Prøv pæn JSON først (giver stabilitet for objekter)
+    try {
+      s = JSON.stringify(input);
+    } catch {
+      // Fallback: bare String()
+      s = String(input);
+    }
+  }
+
+  // 2) Normaliser whitespace og trim
+  return s.trim().replace(/\s+/g, " ");
 }
 
 /** Henter fra in-memory cache (session) */
@@ -191,27 +194,15 @@ export function elementLatLon(
 // =====================================================
 // AFSNIT 05 – Helpers til UI (labels, beskrivelser, koordinater)
 // =====================================================
-
-/**
- * getCoordinates
- * Bruges af PlaceCard m.fl.
- * Returnerer bedste bud på lat/lon for et OverpassElement (node/way/relation).
- */
 export function getCoordinates(
   el: OverpassElement
 ): { lat: number; lon: number } | null {
   return elementLatLon(el);
 }
 
-/**
- * getCategoryLabel
- * Prøver at udlede en menneskevenlig kategori ud fra OSM-tags.
- * (Holdt enkel og robust – udvides senere hvis vi vil.)
- */
 export function getCategoryLabel(el: OverpassElement): string {
   const t = el.tags ?? {};
 
-  // tourism
   if (t.tourism) {
     const v = t.tourism;
     if (v === "museum") return "Museum";
@@ -224,11 +215,9 @@ export function getCategoryLabel(el: OverpassElement): string {
     return "Turisme";
   }
 
-  // explicit tags
   if (t.museum) return "Museum";
   if (t.viewpoint) return "Udsigtspunkt";
 
-  // historic
   if (t.historic) {
     const v = t.historic;
     if (v === "castle") return "Slot";
@@ -238,33 +227,24 @@ export function getCategoryLabel(el: OverpassElement): string {
     return "Historisk sted";
   }
 
-  // religion / place of worship
   if (t.amenity === "place_of_worship" || t.building === "church") return "Kirke";
   if (t.building === "cathedral") return "Katedral";
   if (t.building === "chapel") return "Kapel";
 
-  // leisure / nature
   if (t.leisure === "park") return "Park";
   if (t.natural) return "Natur";
   if (t.waterway) return "Vand";
 
-  // fallback
   return "Sted";
 }
 
-/**
- * getCategoryDescription
- * Kort, pæn tekst til UI. Viser navn + type, ellers udvalgte tags.
- */
 export function getCategoryDescription(el: OverpassElement): string {
   const t = el.tags ?? {};
   const name = t.name?.trim();
   const label = getCategoryLabel(el);
 
-  // Hvis der er navn, så brug det sammen med label
   if (name) return `${label}: ${name}`;
 
-  // Ellers prøv at give en lille “tag-baseret” forklaring
   const candidates: Array<[string, string | undefined]> = [
     ["tourism", t.tourism],
     ["historic", t.historic],
