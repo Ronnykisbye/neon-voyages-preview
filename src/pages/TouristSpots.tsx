@@ -9,7 +9,9 @@ import { TripGuard } from "@/components/TripGuard";
 import SearchControls from "@/components/SearchControls";
 import { NeonCard } from "@/components/ui/NeonCard";
 import { ErrorState, EmptyState } from "@/components/ui/States";
-import { PlaceSkeleton } from "@/components/ui/Skeletons";
+
+import { PlaceSkeleton } from "@/components/ui/skeleton";
+
 import SearchStatusBar from "@/components/SearchStatusBar";
 import TripDebug from "@/components/TripDebug";
 import { ExternalLink } from "lucide-react";
