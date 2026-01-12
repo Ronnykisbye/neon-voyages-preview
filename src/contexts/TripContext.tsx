@@ -15,29 +15,63 @@ export type TripLocation = {
 };
 
 export type TripState = {
+  // Destination/GPS
   location?: TripLocation | null;
+
+  // Datoer
+  startDate?: Date | null;
+  endDate?: Date | null;
+
+  // Tillad ekstra felter uden at alt går i stykker
+  [key: string]: any;
 };
+
+// Patch-type: vi opdaterer kun enkelte felter ad gangen
+type TripPatch = Partial<TripState>;
 
 // =====================================================
 // AFSNIT 03 – Context shape
 // =====================================================
 type TripContextValue = {
   trip: TripState;
-  setTrip: React.Dispatch<React.SetStateAction<TripState>>;
+
+  // VIGTIGT: merge/patch i stedet for at overskrive hele trip
+  setTrip: (patch: TripPatch) => void;
+
   hasLocation: boolean;
 };
 
 const TripContext = createContext<TripContextValue | null>(null);
 
 // =====================================================
-// AFSNIT 04 – Provider
+// AFSNIT 04 – Helpers (Date revive)
+// =====================================================
+function reviveTrip(raw: any): TripState {
+  if (!raw || typeof raw !== "object") return {};
+
+  const t: TripState = { ...raw };
+
+  // Når vi gemmer i storage, bliver Date typisk til string
+  if (typeof t.startDate === "string") t.startDate = new Date(t.startDate);
+  if (typeof t.endDate === "string") t.endDate = new Date(t.endDate);
+
+  // Hvis nogen har gemt timestamps
+  if (typeof t.startDate === "number") t.startDate = new Date(t.startDate);
+  if (typeof t.endDate === "number") t.endDate = new Date(t.endDate);
+
+  return t;
+}
+
+// =====================================================
+// AFSNIT 05 – Provider
 // =====================================================
 export function TripProvider({ children }: { children: React.ReactNode }) {
-  const [trip, setTrip] = useState<TripState>(() => {
-    // readTrip kan returnere null/undefined – vi normaliserer
-    const stored = readTrip?.();
-    return stored && typeof stored === "object" ? stored : {};
-  });
+  const [trip, setTripState] = useState<TripState>(() => reviveTrip(readTrip?.()));
+
+  // MERGE/PATCH setter – det er hele fixet for “dato sletter dato”
+  const setTrip = (patch: TripPatch) => {
+    setTripState((prev) => ({ ...prev, ...patch }));
+  };
 
   // Persist
   useEffect(() => {
@@ -49,7 +83,11 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
   }, [trip]);
 
   const value = useMemo<TripContextValue>(() => {
-    const hasLocation = !!trip?.location && typeof trip.location.lat === "number" && typeof trip.location.lon === "number";
+    const hasLocation =
+      !!trip?.location &&
+      typeof trip.location.lat === "number" &&
+      typeof trip.location.lon === "number";
+
     return { trip, setTrip, hasLocation };
   }, [trip]);
 
@@ -57,7 +95,7 @@ export function TripProvider({ children }: { children: React.ReactNode }) {
 }
 
 // =====================================================
-// AFSNIT 05 – Hook
+// AFSNIT 06 – Hook
 // =====================================================
 export function useTrip() {
   const ctx = useContext(TripContext);
