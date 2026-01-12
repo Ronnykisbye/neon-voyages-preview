@@ -1,27 +1,18 @@
-/* =========================================================
-   AFSNIT 01 – Imports (UI / Providers)
-   ========================================================= */
+// ============================================================================
+// AFSNIT 01 – Imports
+// ============================================================================
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { HashRouter, Routes, Route } from "react-router-dom";
 
-/* =========================================================
-   AFSNIT 02 – Imports (Contexts)
-   VIGTIGT: mappen hedder nu "contexts" (med s)
-   ========================================================= */
+// VIGTIGT: Brug samme sti som resten af appen (contexts) for at undgå “dobbelt context”
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { TripProvider } from "@/contexts/TripContext";
 
-/* =========================================================
-   AFSNIT 03 – Imports (Global components)
-   ========================================================= */
 import GlobalLoadingIndicator from "@/components/GlobalLoadingIndicator";
 
-/* =========================================================
-   AFSNIT 04 – Imports (Pages)
-   ========================================================= */
 import Index from "./pages/Index";
 import Menu from "./pages/Menu";
 import Weather from "./pages/Weather";
@@ -35,24 +26,28 @@ import Help from "./pages/Help";
 import Install from "./pages/Install";
 import NotFound from "./pages/NotFound";
 
-/* =========================================================
-   AFSNIT 05 – React Query Client
-   ========================================================= */
+// ============================================================================
+// AFSNIT 02 – QueryClient (skal ligge udenfor component)
+// ============================================================================
 const queryClient = new QueryClient();
 
-/* =========================================================
-   AFSNIT 06 – App Component + Routes
-   ========================================================= */
+// ============================================================================
+// AFSNIT 03 – App
+// VIGTIGT: TripProvider wrapper ALT der bruger useTrip()
+// ============================================================================
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider>
       <TripProvider>
         <TooltipProvider>
+          {/* UI providers */}
           <Toaster />
           <Sonner />
 
+          {/* Global UI */}
           <GlobalLoadingIndicator />
 
+          {/* Router */}
           <HashRouter>
             <Routes>
               <Route path="/" element={<Index />} />
